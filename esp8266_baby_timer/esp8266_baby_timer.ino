@@ -26,9 +26,9 @@ int maxVal = 6;
 GP_SPINNER sp1("sp1", spinnerValue, minVal, maxVal, 1, 0, GP_BLUE, "", 0);
 
 #define NUM_LEDS 38
-#define DATA_PIN D3
-#define BRIGHTNESS 70
-#define LED_TYPE    WS2812B
+#define DATA_PIN D4
+#define BRIGHTNESS 50
+#define LED_TYPE WS2812B
 #define COLOR_ORDER GRB
 #define FRAMES_PER_SECOND  120
 
@@ -53,7 +53,10 @@ bool isTimerStarted = false;
 int eepromTarget;
 int eepromIntervalAddress = 0;
 int eepromStoreEpochTimeAddress = 1;
+
+#define MAX_LOG_LINES 20
 int counter = 1;
+String logs[MAX_LOG_LINES] = { "TEST", "TEST2" };
 
 String label1 = "test1";
 String label2 = "test2";
@@ -91,6 +94,7 @@ void build() {
 
   M_NAV_BLOCK(
     GP.AREA_LOG(20);
+    GP.BUTTON("show_log", "Show Log", "", GP_GRAY, "100", 0, 0);
   );
 
   // M_BOX(GP.TEXT("txt1", "text1", label1); GP.BREAK(););
@@ -172,9 +176,10 @@ void setup() {
   // ========================================================
   FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
   FastLED.setBrightness(BRIGHTNESS);
-  FastLED.clear();
   pixelsOff();
+  FastLED.clear();
 
+  //==========================================================
   ui.attachBuild(build);
   ui.attach(action);
   ui.start();
@@ -209,10 +214,16 @@ void action() {
       EEPROM.put(eepromIntervalAddress, interval);
       EEPROM.commit();
     }
+    if (ui.click("show_log")) {
+      Serial.println("SHOW LOG");
+      fillLogArea();
+      // resetLog();
+    }
   }
 }
 
 void loop() {
+
   ui.tick();
 
   //------------------------------------
@@ -274,12 +285,29 @@ void stopTimer() {
   isTimerStarted = false;
   currentPixel = 0;
   pixelsOff();
-  
-  char format[] = "hh:mm:ss";
-  String elapsedTimeString = getTimeString(currentEpochTime, format);
-  ui.log.print("      STOP:  ");
-  ui.log.println(elapsedTimeString);
+
+  // char format[] = "hh:mm:ss";
+  // String elapsedTimeString = getTimeString(currentEpochTime, format);
+  // logs[counter] = elapsedTimeString; // "STOP: " + 
+  // counter += 1;
 }
+
+void fillLogArea() {
+  ui.log.clear();
+  for(int i = 0; i <= MAX_LOG_LINES; i++) {
+    Serial.println(logs[i]);
+    ui.log.print("---------");
+    ui.log.print(i);
+    ui.log.print(" ");
+    ui.log.println(logs[i]);
+  }
+}
+
+// void resetLog() {
+//   Serial.println("RESET LOG");
+//   counter = 0;
+//   // Reset log area
+// }
 
 void resetInterval() {
   Serial.println("RESET");
@@ -291,18 +319,14 @@ void resetInterval() {
 
   char format[] = "hh:mm:ss";
   String elapsedTimeString = getTimeString(currentEpochTime, format);
-  ui.log.println("----------------");
-  ui.log.print("[");
-  ui.log.print(counter);
-  ui.log.print("] RESET: ");
-  ui.log.println(elapsedTimeString);
+  logs[counter] = elapsedTimeString; //"RESET: " +
   counter += 1;
 }
 
 void updatePixels() {
   int currentInterval;
   EEPROM.get(eepromIntervalAddress, currentInterval);
-  int pixelDivisionValue = (currentInterval * 3600) / NUM_LEDS;
+  int pixelDivisionValue = (currentInterval * 36) / NUM_LEDS;
   
   if (isTimerStarted) {
     if ((int(currentEpochTime) - int(operationEpochTime)) >= pixelDivisionValue) {
@@ -341,7 +365,7 @@ void setOvertimePixel(int pixel) {
 }
 
 void setPixelBorders() {
-// First led always will be blue
+// First and last leds always will be blue
   leds[0] = CRGB(0, 0, 100);
   leds[NUM_LEDS - 1] = CRGB(0, 0, 100);
   FastLED.delay(40);
