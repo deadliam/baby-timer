@@ -21,8 +21,16 @@ int spinnerValue = 3;
 int minVal = 2;
 int maxVal = 6;
 
+#define MAX_LOG_LINES 20
+int counter = 0;
+String logs[MAX_LOG_LINES] = {"--------", "--------", "--------", "--------", "--------",
+                              "--------", "--------", "--------", "--------", "--------",
+                              "--------", "--------", "--------", "--------", "--------",
+                              "--------", "--------", "--------", "--------", "--------"};
+
 // void SPINNER(const String& name, float value = 0, float min = NAN, float max = NAN, float step = 1, uint16_t dec = 0, PGM_P st = GP_GREEN, const String& w = "", bool dis = 0) {
 GP_SPINNER sp1("sp1", spinnerValue, minVal, maxVal, 1, 0, GP_BLUE, "", 0);
+GP_AREA ar("ar", MAX_LOG_LINES, "", "TEST");
 
 #define NUM_LEDS 38
 #define DATA_PIN D4
@@ -52,12 +60,8 @@ int eepromTarget;
 int eepromIntervalAddress = 0;
 int eepromStoreEpochTimeAddress = 1;
 
-#define MAX_LOG_LINES 20
-int counter = 1;
-String logs[MAX_LOG_LINES] = {"TEST", "TEST2"};
-
-String label1 = "test1";
-String label2 = "test2";
+// String label1 = "test1";
+// String label2 = "test2";
 
 void build() {
   GP.BUILD_BEGIN();
@@ -87,8 +91,9 @@ void build() {
   );
 
   M_NAV_BLOCK(
-    GP.AREA_LOG(20);
-    GP.BUTTON("show_log", "Show Log", "", GP_GRAY, "100", 0, 0);
+    // GP.AREA_LOG(20);
+    GP.AREA(ar);  GP.BREAK();
+    // GP.BUTTON("show_log", "Show Log", "", GP_GRAY, "100", 0, 0);
   );
 
   // M_BOX(GP.TEXT("txt1", "text1", label1); GP.BREAK(););
@@ -181,10 +186,12 @@ void setup() {
 
 void action() {
 
-  // if (ui.update()) {
-  //   ui.updateString("txt1", label1);
-  //   ui.updateString("txt2", label2);
-  // }
+  if (ui.update()) {
+    // ui.updateString("txt1", label1);
+    // ui.updateString("txt2", label2);
+    fillLogArea();
+    ui.update(ar);
+  }
 
   if (ui.click()) {
     if (ui.click("reset")) {
@@ -202,14 +209,17 @@ void action() {
       EEPROM.put(eepromIntervalAddress, interval);
       EEPROM.commit();
     }
-    if (ui.click("show_log")) {
-      Serial.println("SHOW LOG");
-      fillLogArea();
-    }
+    // if (ui.click("show_log")) {
+    //   Serial.println("SHOW LOG");
+    //   fillLogArea();
+    // }
+
+    // if (ui.click(ar)) Serial.println(ar.text);
   }
 }
 
 void loop() {
+
   ui.tick();
 
   //------------------------------------
@@ -260,17 +270,31 @@ void stopTimer() {
   isTimerStarted = false;
   currentPixel = 0;
   pixelsOff();
+
+  char format[] = "hh:mm:ss";
+  String elapsedTimeString = getTimeString(currentEpochTime, format);
+
+  Serial.print(logs[counter - 1]);
+  Serial.print(" - ");
+  Serial.println(elapsedTimeString);
+
+  String prevValue = logs[counter - 1];
+  logs[counter - 1] = prevValue + " - " + elapsedTimeString;
 }
 
 void fillLogArea() {
-  ui.log.clear();
+  String textAreaString = "";
   for (int i = 0; i < MAX_LOG_LINES; i++) {
-    Serial.println(logs[i]);
-    ui.log.print("---------");
-    ui.log.print(i);
-    ui.log.print(" ");
-    ui.log.println(logs[i]);
+    if (logs[i].length() == 0) {
+      continue;
+    }
+    textAreaString += "#";
+    textAreaString += String(i + 1);
+    textAreaString += "\t";
+    textAreaString += logs[i];
+    textAreaString += "\n";
   }
+  ar.text = textAreaString;
 }
 
 void resetInterval() {
@@ -290,7 +314,7 @@ void resetInterval() {
 void updatePixels() {
   int currentInterval;
   EEPROM.get(eepromIntervalAddress, currentInterval);
-  int pixelDivisionValue = (currentInterval * 36) / NUM_LEDS;
+  int pixelDivisionValue = (currentInterval * 3600) / NUM_LEDS;
 
   if (isTimerStarted) {
     if ((int(currentEpochTime) - int(operationEpochTime)) >= pixelDivisionValue) {
