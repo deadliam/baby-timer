@@ -23,14 +23,11 @@ int maxVal = 6;
 
 #define MAX_LOG_LINES 20
 int counter = 0;
-String logs[MAX_LOG_LINES] = {"--------", "--------", "--------", "--------", "--------",
-                              "--------", "--------", "--------", "--------", "--------",
-                              "--------", "--------", "--------", "--------", "--------",
-                              "--------", "--------", "--------", "--------", "--------"};
+String logs[MAX_LOG_LINES] = {};
 
 // void SPINNER(const String& name, float value = 0, float min = NAN, float max = NAN, float step = 1, uint16_t dec = 0, PGM_P st = GP_GREEN, const String& w = "", bool dis = 0) {
 GP_SPINNER sp1("sp1", spinnerValue, minVal, maxVal, 1, 0, GP_BLUE, "", 0);
-GP_AREA ar("ar", MAX_LOG_LINES, "", "TEST");
+GP_AREA ar("ar", MAX_LOG_LINES, "", "");
 
 #define NUM_LEDS 38
 #define DATA_PIN D4
@@ -59,9 +56,25 @@ bool isTimerStarted = false;
 int eepromTarget;
 int eepromIntervalAddress = 0;
 int eepromStoreEpochTimeAddress = 1;
+int eepromStoreLogsArrayAddress = 2;
 
 // String label1 = "test1";
 // String label2 = "test2";
+
+enum foodQuality {GOOD, ORDINARY, BAD};
+String currentFoodQuality;
+
+#define LOG_PRD 1 // seconds
+#define PLOT_SIZE 100
+
+struct PlotData {
+  int16_t vals[2][PLOT_SIZE];
+  uint32_t unix[PLOT_SIZE];
+};
+
+PlotData data;
+
+const char *names[] = {"Random", "Counter"};
 
 void build() {
   GP.BUILD_BEGIN();
@@ -81,8 +94,14 @@ void build() {
         GP.TIME("time", valTime);
       );
     );
-    GP.BUTTON("reset", "Reset", "", GP_BLUE_B, "100", 0, 0);
+    M_BLOCK_THIN(
+      // GP.BUTTON("reset", "Reset", "", GP_BLUE_B, "100", 0, 0);
+      GP.BUTTON("good", "😋 Good", "", GP_GREEN_B, "100", 0, 0);
+      GP.BUTTON("ordinary", "😐 Ordinary", "", GP_BLUE_B, "100", 0, 0);
+      GP.BUTTON("bad", "🤔 Bad", "", GP_RED_B, "100", 0, 0);
+    );
     GP.BUTTON("stop", "Stop", "", GP_GRAY, "100", 0, 0);
+
     M_BOX(
       GP.LABEL("Food interval:");
       GP.BREAK();
@@ -91,11 +110,13 @@ void build() {
   );
 
   M_NAV_BLOCK(
-    // GP.AREA_LOG(20);
     GP.AREA(ar);  GP.BREAK();
     // GP.BUTTON("show_log", "Show Log", "", GP_GRAY, "100", 0, 0);
   );
 
+  
+  // GP.PLOT_STOCK_DARK<2, PLOT_SIZE>("plot", names, data.unix, data.vals);
+  
   // M_BOX(GP.TEXT("txt1", "text1", label1); GP.BREAK(););
   // M_BOX(GP.TEXT("txt2", "text2", label2); GP.BREAK(););
   GP.BUILD_END();
@@ -159,6 +180,8 @@ void setup() {
     Serial.print("eepromTarget is: ");
     Serial.println(eepromTarget);
   }
+  // TODO: Get array from eeprom
+  // EEPROM.get(eepromStoreLogsArrayAddress, logs);
   // ========================================================
 
   timeClient.begin();
@@ -194,9 +217,22 @@ void action() {
   }
 
   if (ui.click()) {
-    if (ui.click("reset")) {
-      Serial.println("RESET INTERVAL");
-      resetInterval();
+    // if (ui.click("reset")) {
+    //   Serial.println("RESET INTERVAL");
+    //   resetInterval();
+    // }
+
+    if (ui.click("good")) {
+      Serial.println("FOOD QUALITY GOOD");
+      resetInterval(GOOD);
+    }
+    if (ui.click("ordinary")) {
+      Serial.println("FOOD QUALITY ORDINARY");
+      resetInterval(ORDINARY);
+    }
+    if (ui.click("bad")) {
+      Serial.println("FOOD QUALITY BAD");
+      resetInterval(BAD);
     }
     if (ui.click("stop")) {
       Serial.println("STOP TIMER");
@@ -221,12 +257,17 @@ void action() {
 void loop() {
 
   ui.tick();
-
+  //------------------------------------
+  // dataLog();
   //------------------------------------
   static uint32_t tmr;
-  if (millis() - tmr > 2000) {
+  if (millis() - tmr > 10000) {
     tmr = millis();
-    // Here code executed every 2 sec
+    // Here code executed every 10 sec
+
+    // TODO: Put array from eeprom
+    // EEPROM.put(eepromStoreLogsArrayAddress, logs);
+    // EEPROM.commit();
   }
   //------------------------------------
 
@@ -273,11 +314,6 @@ void stopTimer() {
 
   char format[] = "hh:mm:ss";
   String elapsedTimeString = getTimeString(currentEpochTime, format);
-
-  Serial.print(logs[counter - 1]);
-  Serial.print(" - ");
-  Serial.println(elapsedTimeString);
-
   String prevValue = logs[counter - 1];
   logs[counter - 1] = prevValue + " - " + elapsedTimeString;
 }
@@ -297,8 +333,28 @@ void fillLogArea() {
   ar.text = textAreaString;
 }
 
-void resetInterval() {
-  Serial.println("RESET");
+void setFoodQualityString(foodQuality quality) {
+  // {GOOD, ORDINARY, BAD};
+  // 😋 😐 🤔
+  if(quality == GOOD)
+  {
+    currentFoodQuality = "😋";
+  }
+  else if(quality == ORDINARY)
+  {
+    currentFoodQuality = "😐";
+  }
+  else if(quality == BAD)
+  {
+    currentFoodQuality = "🤔";
+  }
+}
+
+void resetInterval(foodQuality quality) {
+  Serial.println("FOOD QUALITY: ");
+  Serial.println(quality);
+  setFoodQualityString(quality);
+
   pixelsOn();
   storeEpochTime = currentEpochTime;
   operationEpochTime = currentEpochTime;
@@ -307,8 +363,17 @@ void resetInterval() {
 
   char format[] = "hh:mm:ss";
   String elapsedTimeString = getTimeString(currentEpochTime, format);
-  logs[counter] = elapsedTimeString;
+  String currentLine = currentFoodQuality + elapsedTimeString;
+  logs[counter] = currentLine;
+  if (counter < MAX_LOG_LINES) {
+    logs[counter + 1] = "---------------";
+  }
   counter += 1;
+
+  // Reset logs line to the first one
+  if (counter >= MAX_LOG_LINES) {
+    counter = 0;
+  }
 }
 
 void updatePixels() {
@@ -380,4 +445,32 @@ String getTimeString(time_t timeInterval, const char *format) {
   snprintf(buf, sizeof(buf), "%02d:%02d:%02d",
            hour(timeInterval), minute(timeInterval), second(timeInterval));
   return String(buf);
+}
+
+void dataLog() {
+  static uint32_t tmr;   // переменная таймера
+  static byte counter;   // счётчик для графика
+
+  // таймер на LOG_PRD секунд
+  if (millis() - tmr >= LOG_PRD * 1000ul) {
+    tmr = millis();
+
+    // запрашиваем время
+    time_t rawtime;
+    time(&rawtime);
+
+    // точное время не получено, выходим
+    // первое обновление через ~30 секунд после подключения
+    if (rawtime < 1600000000) return;
+
+    // добавляем точки в график
+    GPaddInt(random(255), data.vals[0], PLOT_SIZE);
+    GPaddInt(counter, data.vals[1], PLOT_SIZE);
+    GPaddUnix(rawtime, data.unix, PLOT_SIZE);
+    counter++;
+
+    // сохраняем в епром
+    EEPROM.put(0, data);
+    EEPROM.commit();
+  }
 }
