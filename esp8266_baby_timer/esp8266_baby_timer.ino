@@ -105,15 +105,23 @@ void build() {
   );
   M_BLOCK_THIN(
     // GP.BUTTON("reset", "Reset", "", GP_BLUE_B, "100", 0, 0);
-    GP.BUTTON("good", "😋 Good", "", GP_GREEN_B, "100", 0, 0);
-    GP.BUTTON("ordinary", "😐 Ordinary", "", GP_BLUE_B, "100", 0, 0);
-    GP.BUTTON("bad", "🤔 Bad", "", GP_RED_B, "100", 0, 0);
+    M_BOX(
+      GP.BUTTON("good1", "😋 Good", "", GP_GREEN_B, "100", 0, 0); 
+      GP.BUTTON("good2", "😋😋 Good", "", GP_GREEN_B, "100", 0, 0);
+    );
+    M_BOX(
+      GP.BUTTON("ordinary1", "😐 Ordi", "", GP_BLUE_B, "100", 0, 0);
+      GP.BUTTON("ordinary2", "😐😐 Ordi", "", GP_BLUE_B, "100", 0, 0);
+    );
+    M_BOX(
+      GP.BUTTON("bad1", "🤔 Bad", "", GP_RED_B, "100", 0, 0);
+      GP.BUTTON("bad2", "🤔🤔 Bad", "", GP_RED_B, "100", 0, 0);
+    );
   );
-  GP.BUTTON("stop", "Stop", "", GP_GRAY, "100", 0, 0);
+  GP.BUTTON_MINI("stop", "Stop", "", GP_GRAY, "100", 0, 0);
 
   M_BOX(
     GP.LABEL("Food interval:");
-    GP.BREAK();
     GP.SPINNER(sp1);
   );
   GP.NAV_BLOCK_END();
@@ -229,17 +237,29 @@ void action() {
 
   if (ui.click()) {
 
-    if (ui.click("good")) {
+    if (ui.click("good1")) {
       Serial.println("FOOD QUALITY GOOD");
-      resetInterval(GOOD);
+      resetInterval(GOOD, 1);
     }
-    if (ui.click("ordinary")) {
+    if (ui.click("good2")) {
+      Serial.println("FOOD QUALITY GOOD");
+      resetInterval(GOOD, 2);
+    }
+    if (ui.click("ordinary1")) {
       Serial.println("FOOD QUALITY ORDINARY");
-      resetInterval(ORDINARY);
+      resetInterval(ORDINARY, 1);
     }
-    if (ui.click("bad")) {
+    if (ui.click("ordinary2")) {
+      Serial.println("FOOD QUALITY ORDINARY");
+      resetInterval(ORDINARY, 2);
+    }
+    if (ui.click("bad1")) {
       Serial.println("FOOD QUALITY BAD");
-      resetInterval(BAD);
+      resetInterval(BAD, 1);
+    }
+    if (ui.click("bad2")) {
+      Serial.println("FOOD QUALITY BAD");
+      resetInterval(BAD, 2);
     }
     if (ui.click("stop")) {
       Serial.println("STOP TIMER");
@@ -342,7 +362,7 @@ void foodQualityValue(foodQuality quality) {
   }
 }
 
-void resetInterval(foodQuality quality) {
+void resetInterval(foodQuality quality, int brestFeedAmount) {
   Serial.println("FOOD QUALITY: ");
   Serial.println(quality);
   foodQualityValue(quality);
@@ -356,10 +376,13 @@ void resetInterval(foodQuality quality) {
 
   char format[] = "hh:mm:ss";
   String elapsedTimeString = getTimeString(currentEpochTime, format);
+  if (brestFeedAmount == 2) {
+    currentFoodQuality = currentFoodQuality + currentFoodQuality;
+  }
   String currentLine = currentFoodQuality + elapsedTimeString;
   logs[counter] = currentLine;
   if (counter < MAX_LOG_LINES) {
-    logs[counter + 1] = "---------------";
+    logs[counter + 1] = "-------------";
   }
   counter += 1;
 
