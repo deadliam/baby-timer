@@ -11,6 +11,11 @@
 #include "WiFiUdp.h"
 #include <EEPROM.h>
 
+// Graph of food quality
+const char* qualityServer = "api.thingspeak.com";
+String apiKey = "MLEOS3KZ6FCKOYB3";
+WiFiClient qualityClient;
+
 unsigned long previousMillis = 0UL;
 unsigned long timeInterval = 1000UL;
 time_t currentEpochTime;
@@ -62,19 +67,22 @@ int eepromStoreLogsArrayAddress = 2;
 // String label2 = "test2";
 
 enum foodQuality {GOOD, ORDINARY, BAD};
+String foodQualityGood = "😋";
+String foodQualityOrdinary = "😐";
+String foodQualityBad = "🤔";
+
 String currentFoodQuality;
+int currentFoodQualityIntValue = 0;
 
-#define LOG_PRD 1 // seconds
-#define PLOT_SIZE 100
+enum borderColor {RED, BLUE, GREEN};
 
+#define PLOT_SIZE 20
 struct PlotData {
-  int16_t vals[2][PLOT_SIZE];
+  int16_t vals[1][PLOT_SIZE];
   uint32_t unix[PLOT_SIZE];
 };
-
 PlotData data;
-
-const char *names[] = {"Random", "Counter"};
+const char *graphNames[] = {"quality",};
 
 void build() {
   GP.BUILD_BEGIN();
@@ -85,38 +93,41 @@ void build() {
   GP.TITLE("BABY TIMER");
   GP.HR();
 
-  GP.NAV_TABS("Action,Log", GP_BLUE_B);
+  GP.NAV_TABS("Action,Log,Graph", GP_BLUE_B);
 
-  M_NAV_BLOCK(
-    M_BLOCK_THIN(
-      M_BOX(
-        GP.LABEL("Elapsed:");
-        GP.TIME("time", valTime);
-      );
-    );
-    M_BLOCK_THIN(
-      // GP.BUTTON("reset", "Reset", "", GP_BLUE_B, "100", 0, 0);
-      GP.BUTTON("good", "😋 Good", "", GP_GREEN_B, "100", 0, 0);
-      GP.BUTTON("ordinary", "😐 Ordinary", "", GP_BLUE_B, "100", 0, 0);
-      GP.BUTTON("bad", "🤔 Bad", "", GP_RED_B, "100", 0, 0);
-    );
-    GP.BUTTON("stop", "Stop", "", GP_GRAY, "100", 0, 0);
-
+  GP.NAV_BLOCK_BEGIN();
+  // M_NAV_BLOCK(
+  M_BLOCK_THIN(
     M_BOX(
-      GP.LABEL("Food interval:");
-      GP.BREAK();
-      GP.SPINNER(sp1);
+      GP.LABEL("Elapsed:");
+      GP.TIME("time", valTime);
     );
   );
-
-  M_NAV_BLOCK(
-    GP.AREA(ar);  GP.BREAK();
-    // GP.BUTTON("show_log", "Show Log", "", GP_GRAY, "100", 0, 0);
+  M_BLOCK_THIN(
+    // GP.BUTTON("reset", "Reset", "", GP_BLUE_B, "100", 0, 0);
+    GP.BUTTON("good", "😋 Good", "", GP_GREEN_B, "100", 0, 0);
+    GP.BUTTON("ordinary", "😐 Ordinary", "", GP_BLUE_B, "100", 0, 0);
+    GP.BUTTON("bad", "🤔 Bad", "", GP_RED_B, "100", 0, 0);
   );
+  GP.BUTTON("stop", "Stop", "", GP_GRAY, "100", 0, 0);
 
-  
-  // GP.PLOT_STOCK_DARK<2, PLOT_SIZE>("plot", names, data.unix, data.vals);
-  
+  M_BOX(
+    GP.LABEL("Food interval:");
+    GP.BREAK();
+    GP.SPINNER(sp1);
+  );
+  GP.NAV_BLOCK_END();
+  // );
+
+  GP.NAV_BLOCK_BEGIN();
+    GP.AREA(ar); GP.BREAK();
+    // GP.BUTTON("show_log", "Show Log", "", GP_GRAY, "100", 0, 0);
+  GP.NAV_BLOCK_END();
+
+  GP.NAV_BLOCK_BEGIN();
+    GP.PLOT_STOCK_DARK<1, PLOT_SIZE>("plot1", graphNames, data.unix, data.vals);
+  GP.NAV_BLOCK_END();
+
   // M_BOX(GP.TEXT("txt1", "text1", label1); GP.BREAK(););
   // M_BOX(GP.TEXT("txt2", "text2", label2); GP.BREAK(););
   GP.BUILD_END();
@@ -180,8 +191,6 @@ void setup() {
     Serial.print("eepromTarget is: ");
     Serial.println(eepromTarget);
   }
-  // TODO: Get array from eeprom
-  // EEPROM.get(eepromStoreLogsArrayAddress, logs);
   // ========================================================
 
   timeClient.begin();
@@ -192,6 +201,7 @@ void setup() {
   // GMT 0 = 0
   timeClient.setTimeOffset(7200);
 
+  // ========================================================
   strip.begin();
   strip.setBrightness(BRIGHTNESS);
   pixelsOff();
@@ -203,6 +213,7 @@ void setup() {
   ui.log.start(30);
   ui.enableOTA();
 
+  // ========================================================
   if (!LittleFS.begin()) Serial.println("FS Error");
   ui.downloadAuto(true);
 }
@@ -217,10 +228,6 @@ void action() {
   }
 
   if (ui.click()) {
-    // if (ui.click("reset")) {
-    //   Serial.println("RESET INTERVAL");
-    //   resetInterval();
-    // }
 
     if (ui.click("good")) {
       Serial.println("FOOD QUALITY GOOD");
@@ -245,30 +252,12 @@ void action() {
       EEPROM.put(eepromIntervalAddress, interval);
       EEPROM.commit();
     }
-    // if (ui.click("show_log")) {
-    //   Serial.println("SHOW LOG");
-    //   fillLogArea();
-    // }
-
-    // if (ui.click(ar)) Serial.println(ar.text);
   }
 }
 
 void loop() {
 
   ui.tick();
-  //------------------------------------
-  // dataLog();
-  //------------------------------------
-  static uint32_t tmr;
-  if (millis() - tmr > 10000) {
-    tmr = millis();
-    // Here code executed every 10 sec
-
-    // TODO: Put array from eeprom
-    // EEPROM.put(eepromStoreLogsArrayAddress, logs);
-    // EEPROM.commit();
-  }
   //------------------------------------
 
   // UI Update
@@ -333,27 +322,31 @@ void fillLogArea() {
   ar.text = textAreaString;
 }
 
-void setFoodQualityString(foodQuality quality) {
+void foodQualityValue(foodQuality quality) {
   // {GOOD, ORDINARY, BAD};
   // 😋 😐 🤔
   if(quality == GOOD)
   {
-    currentFoodQuality = "😋";
+    currentFoodQuality = foodQualityGood;
+    currentFoodQualityIntValue = 1;
   }
   else if(quality == ORDINARY)
   {
-    currentFoodQuality = "😐";
+    currentFoodQuality = foodQualityOrdinary;
+    currentFoodQualityIntValue = 0;
   }
   else if(quality == BAD)
   {
-    currentFoodQuality = "🤔";
+    currentFoodQuality = foodQualityBad;
+    currentFoodQualityIntValue = -1;
   }
 }
 
 void resetInterval(foodQuality quality) {
   Serial.println("FOOD QUALITY: ");
   Serial.println(quality);
-  setFoodQualityString(quality);
+  foodQualityValue(quality);
+  postFoodQualityGraph(currentFoodQualityIntValue);
 
   pixelsOn();
   storeEpochTime = currentEpochTime;
@@ -369,6 +362,10 @@ void resetInterval(foodQuality quality) {
     logs[counter + 1] = "---------------";
   }
   counter += 1;
+
+  GPaddInt(currentFoodQualityIntValue, data.vals[0], PLOT_SIZE);
+  // Correct time with minus 2 hours
+  GPaddUnix(currentEpochTime - 7200, data.unix, PLOT_SIZE);
 
   // Reset logs line to the first one
   if (counter >= MAX_LOG_LINES) {
@@ -414,8 +411,16 @@ void setOvertimePixel(int pixel) {
 }
 
 void setPixelBorders() {
-  strip.setPixelColor(0, strip.Color(0, 0, 100));
-  strip.setPixelColor(NUM_LEDS - 1, strip.Color(0, 0, 100));
+  uint32_t color = strip.Color(0, 0, 0);
+  if (currentFoodQuality == foodQualityGood) {
+    color = strip.Color(0, 100, 0);
+  } else if (currentFoodQuality == foodQualityOrdinary) {
+    color = strip.Color(0, 0, 100);
+  } else if (currentFoodQuality == foodQualityBad) {
+    color = strip.Color(100, 0, 0);
+  }
+  strip.setPixelColor(0, color);
+  strip.setPixelColor(NUM_LEDS - 1, color);
   strip.show();
 }
 
@@ -447,30 +452,23 @@ String getTimeString(time_t timeInterval, const char *format) {
   return String(buf);
 }
 
-void dataLog() {
-  static uint32_t tmr;   // переменная таймера
-  static byte counter;   // счётчик для графика
+void postFoodQualityGraph(int point) {
+  if (qualityClient.connect(qualityServer,80))     // "184.106.153.149" or api.thingspeak.com
+  { 
+    String postStr = apiKey;
+    postStr +="&field1=";
+    postStr += String(point);
+    postStr += "\r\n\r\n";
 
-  // таймер на LOG_PRD секунд
-  if (millis() - tmr >= LOG_PRD * 1000ul) {
-    tmr = millis();
-
-    // запрашиваем время
-    time_t rawtime;
-    time(&rawtime);
-
-    // точное время не получено, выходим
-    // первое обновление через ~30 секунд после подключения
-    if (rawtime < 1600000000) return;
-
-    // добавляем точки в график
-    GPaddInt(random(255), data.vals[0], PLOT_SIZE);
-    GPaddInt(counter, data.vals[1], PLOT_SIZE);
-    GPaddUnix(rawtime, data.unix, PLOT_SIZE);
-    counter++;
-
-    // сохраняем в епром
-    EEPROM.put(0, data);
-    EEPROM.commit();
+    qualityClient.print("POST /update HTTP/1.1\n");
+    qualityClient.print("Host: api.thingspeak.com\n");
+    qualityClient.print("Connection: close\n");
+    qualityClient.print("X-THINGSPEAKAPIKEY: "+apiKey+"\n");
+    qualityClient.print("Content-Type: application/x-www-form-urlencoded\n");
+    qualityClient.print("Content-Length: ");
+    qualityClient.print(postStr.length());
+    qualityClient.print("\n\n");
+    qualityClient.print(postStr);
   }
+  qualityClient.stop();
 }
