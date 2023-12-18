@@ -376,20 +376,19 @@ void resetInterval(foodQuality quality, int brestFeedAmount) {
 
   char format[] = "hh:mm:ss";
   String elapsedTimeString = getTimeString(currentEpochTime, format);
+  String currentLine = currentFoodQuality;
   if (brestFeedAmount == 2) {
-    currentFoodQuality = currentFoodQuality + currentFoodQuality;
+    currentLine = currentLine + currentFoodQuality;
   }
-  String currentLine = currentFoodQuality + elapsedTimeString;
-  logs[counter] = currentLine;
+  logs[counter] = currentLine + elapsedTimeString;
   if (counter < MAX_LOG_LINES) {
     logs[counter + 1] = "-------------";
   }
-  counter += 1;
-
   GPaddInt(currentFoodQualityIntValue, data.vals[0], PLOT_SIZE);
   // Correct time with minus 2 hours
   GPaddUnix(currentEpochTime - 7200, data.unix, PLOT_SIZE);
 
+  counter += 1;
   // Reset logs line to the first one
   if (counter >= MAX_LOG_LINES) {
     counter = 0;
