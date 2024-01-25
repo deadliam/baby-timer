@@ -2,6 +2,7 @@
 #include <GyverPortal.h>
 #include <LittleFS.h>
 #include <TimeLib.h>
+// #include <UnixTime.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <DNSServer.h>
@@ -16,9 +17,15 @@ const char* qualityServer = "api.thingspeak.com";
 String apiKey = "MLEOS3KZ6FCKOYB3";
 WiFiClient qualityClient;
 
+// String serverDnsName = "babytimer";
+String serverDnsName = "testtimer";
+
+unsigned long myTimerMillisForUpdateValues;
 unsigned long previousMillis = 0UL;
 unsigned long timeInterval = 1000UL;
+unsigned long manualTimerSetThreshold = 3000;
 time_t currentEpochTime;
+int pixelDivisionValue;
 
 GyverPortal ui(&LittleFS);
 
@@ -47,15 +54,35 @@ const long utcOffsetInSeconds = 19800;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 
+int monthDay = 1;
+int currentMonth = 1;
+int currentYear = 2024;
+
 GPdate valDate;
 GPtime valTime;
+GPtime setManualTimeValue;
+GPtime previousManualTimeValue;
+
+// UnixTime unixTimestamp(2);  // set GMT (2 for Kyiv)
+// setDateTime(year, month (from 1), day (from 1), hours, minutes, seconds);
+// or unixTimestamp.year = 2021
+// unixTimestamp.setDateTime(2021, 5, 20, 7, 4, 15);
+// uint32_t unix = unixTimestamp.getUnix();
+// unixTimestamp.getDateTime(1621497944);
+// Serial.println(unixTimestamp.year);
+// Serial.println(unixTimestamp.month);
+// Serial.println(unixTimestamp.day);
+// Serial.println(unixTimestamp.hour);
+// Serial.println(unixTimestamp.minute);
+// Serial.println(unixTimestamp.second);
+// Serial.println(unixTimestamp.dayOfWeek);  // 1 monday, 7 sunday
 
 int interval = 3;
 int currentPixel = 0;
-time_t storeEpochTime = 0;
 time_t operationEpochTime = 0;
 
 bool isTimerStarted = false;
+bool isManualTimerSet = false;
 
 #define EEPROM_SIZE 512
 int eepromTarget;
@@ -90,7 +117,7 @@ void build() {
   GP.THEME(GP_DARK);
   //GP.THEME(GP_LIGHT);
   GP.UPDATE("txt1,txt2,sp1");
-  GP.TITLE("BABY TIMER");
+  GP.TITLE("HEDGEHOG TIMER");
   GP.HR();
 
   GP.NAV_TABS("Action,Log,Graph", GP_BLUE_B);
@@ -106,16 +133,16 @@ void build() {
   M_BLOCK_THIN(
     // GP.BUTTON("reset", "Reset", "", GP_BLUE_B, "100", 0, 0);
     M_BOX(
-      GP.BUTTON("good1", "😋 Good", "", GP_GREEN_B, "100", 0, 0); 
-      GP.BUTTON("good2", "😋😋 Good", "", GP_GREEN_B, "100", 0, 0);
+      GP.BUTTON("good1", "😋", "", GP_GREEN_B, "100", 0, 0); 
+      GP.BUTTON("good2", "😋😋", "", GP_GREEN_B, "100", 0, 0);
     );
     M_BOX(
-      GP.BUTTON("ordinary1", "😐 Ordi", "", GP_BLUE_B, "100", 0, 0);
-      GP.BUTTON("ordinary2", "😐😐 Ordi", "", GP_BLUE_B, "100", 0, 0);
+      GP.BUTTON("ordinary1", "😐", "", GP_BLUE_B, "100", 0, 0);
+      GP.BUTTON("ordinary2", "😐😐", "", GP_BLUE_B, "100", 0, 0);
     );
     M_BOX(
-      GP.BUTTON("bad1", "🤔 Bad", "", GP_RED_B, "100", 0, 0);
-      GP.BUTTON("bad2", "🤔🤔 Bad", "", GP_RED_B, "100", 0, 0);
+      GP.BUTTON("bad1", "🤔", "", GP_RED_B, "100", 0, 0);
+      GP.BUTTON("bad2", "🤔🤔", "", GP_RED_B, "100", 0, 0);
     );
   );
   GP.BUTTON_MINI("stop", "Stop", "", GP_GRAY, "100", 0, 0);
@@ -124,6 +151,13 @@ void build() {
     GP.LABEL("Food interval:");
     GP.SPINNER(sp1);
   );
+  M_BLOCK_THIN(
+    M_BOX(
+      GP.LABEL("Set Time:");
+      GP.TIME("setTime", setManualTimeValue);
+    );
+  );
+  
   GP.NAV_BLOCK_END();
   // );
 
@@ -142,7 +176,7 @@ void build() {
 }
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
 
   // WiFiManager
   // Local intialization. Once its business is done, there is no need to keep it around
@@ -152,7 +186,7 @@ void setup() {
   
   // set custom ip for portal
   //wifiManager.setAPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
-  wifiManager.setHostname("babytimer");
+  wifiManager.setHostname(serverDnsName);
 
   // fetches ssid and pass from eeprom and tries to connect
   // if it does not connect it starts an access point with the specified name
@@ -171,7 +205,7 @@ void setup() {
   // - second argument is the IP address to advertise
   //   we send our IP address on the WiFi network
 
-  if (!MDNS.begin("babytimer")) {
+  if (!MDNS.begin(serverDnsName)) {
     Serial.println("Error setting up MDNS responder!");
     while (1) {
       delay(1000);
@@ -199,8 +233,8 @@ void setup() {
     Serial.print("eepromTarget is: ");
     Serial.println(eepromTarget);
   }
+  
   // ========================================================
-
   timeClient.begin();
   // Set offset time in seconds to adjust for your timezone, for example:
   // GMT +1 = 3600
@@ -236,7 +270,6 @@ void action() {
   }
 
   if (ui.click()) {
-
     if (ui.click("good1")) {
       Serial.println("FOOD QUALITY GOOD");
       resetInterval(GOOD, 1);
@@ -272,6 +305,14 @@ void action() {
       EEPROM.put(eepromIntervalAddress, interval);
       EEPROM.commit();
     }
+    if (ui.clickTime("setTime", setManualTimeValue)) {
+      ui.updateTime("setTime", setManualTimeValue);
+      Serial.println("----------------");
+      Serial.print("setManualTimeValue: ");
+      Serial.println(setManualTimeValue.encode());
+      //restart the TIMER
+      myTimerMillisForUpdateValues = millis();
+    }
   }
 }
 
@@ -279,7 +320,6 @@ void loop() {
 
   ui.tick();
   //------------------------------------
-
   // UI Update
   // ui.updateDate("date", valDate);
 
@@ -301,15 +341,32 @@ void loop() {
     updatePixels();
     previousMillis = currentMillis;
   }
-  // time_t currentEpochTime = timeClient.getEpochTime();
-  // Serial.print("Epoch Time: ");
-  // Serial.println(currentEpochTime);
 
-  //Get a time structure
-  // struct tm *ptm = gmtime ((time_t *)&currentEpochTime); 
-  // int monthDay = ptm->tm_mday;
-  // int currentMonth = ptm->tm_mon+1;
-  // int currentYear = ptm->tm_year+1900;
+  //has the variable changed since last time here?
+  if(previousManualTimeValue.encode() != setManualTimeValue.encode()) {
+
+    //Get a time structure
+    struct tm *ptm = gmtime ((time_t *)&currentEpochTime); 
+    monthDay = ptm->tm_mday;
+    currentMonth = ptm->tm_mon+1;
+    currentYear = ptm->tm_year+1900;
+
+    //has the 10 sec TIMER expired?
+    if(millis() - myTimerMillisForUpdateValues > manualTimerSetThreshold) {
+      valTime.set(setManualTimeValue.hour, setManualTimeValue.minute, setManualTimeValue.second);
+      isManualTimerSet = true;
+
+      Serial.println("~~~~~~~~~~~~~");
+      Serial.print("valTime: ");
+      Serial.println(valTime.encode());
+      Serial.println("---------");
+      Serial.print("isManualTimerSet: ");
+      Serial.println(isManualTimerSet);
+    
+      //update to the new state
+      previousManualTimeValue = setManualTimeValue;
+    }
+  }
 
   // valDate.set(currentYear, currentMonth, monthDay);
   // valTime.set(timeClient.getHours(), timeClient.getMinutes(), timeClient.getSeconds());
@@ -322,9 +379,9 @@ void stopTimer() {
   pixelsOff();
 
   char format[] = "hh:mm:ss";
-  String elapsedTimeString = getTimeString(currentEpochTime, format);
+  String logTimeString = getTimeString(currentEpochTime, format);
   String prevValue = logs[counter - 1];
-  logs[counter - 1] = prevValue + " - " + elapsedTimeString;
+  logs[counter - 1] = prevValue + " - " + logTimeString;
 }
 
 void fillLogArea() {
@@ -342,7 +399,7 @@ void fillLogArea() {
   ar.text = textAreaString;
 }
 
-void foodQualityValue(foodQuality quality) {
+void setFoodQualityValue(foodQuality quality) {
   // {GOOD, ORDINARY, BAD};
   // 😋 😐 🤔
   if(quality == GOOD)
@@ -363,27 +420,43 @@ void foodQualityValue(foodQuality quality) {
 }
 
 void resetInterval(foodQuality quality, int brestFeedAmount) {
-  Serial.println("FOOD QUALITY: ");
+  Serial.print("FOOD QUALITY: ");
   Serial.println(quality);
-  foodQualityValue(quality);
-  postFoodQualityGraph(currentFoodQualityIntValue);
 
-  pixelsOn();
-  storeEpochTime = currentEpochTime;
-  operationEpochTime = currentEpochTime;
-  currentPixel = 0;
+  setFoodQualityValue(quality);
+  if (serverDnsName != "testtimer") {
+    postFoodQualityGraph(currentFoodQualityIntValue);
+  }
+
+  if (isManualTimerSet) {
+    int additionalTime = setManualTimeValue.hour * 60 * 60 + setManualTimeValue.minute * 60;
+    Serial.println("");
+    Serial.print("additionalTime: ");
+    Serial.println(additionalTime);
+    // calculate pixels
+    operationEpochTime = currentEpochTime - additionalTime; // correct value according manual timer value
+    currentPixel = 0; // correct value according manual timer value
+  } else {
+    operationEpochTime = currentEpochTime;
+    currentPixel = 0;
+  }
+
+  pixelsOn(currentPixel);
   isTimerStarted = true;
 
+  // Set log line
   char format[] = "hh:mm:ss";
-  String elapsedTimeString = getTimeString(currentEpochTime, format);
+  String logTimeString = getTimeString(currentEpochTime, format);
   String currentLine = currentFoodQuality;
+  // Add second emoji to log string if two breasts was used
   if (brestFeedAmount == 2) {
     currentLine = currentLine + currentFoodQuality;
   }
-  logs[counter] = currentLine + elapsedTimeString;
+  logs[counter] = currentLine + logTimeString;
   if (counter < MAX_LOG_LINES) {
     logs[counter + 1] = "-------------";
   }
+  // Set graph point
   GPaddInt(currentFoodQualityIntValue, data.vals[0], PLOT_SIZE);
   // Correct time with minus 2 hours
   GPaddUnix(currentEpochTime - 7200, data.unix, PLOT_SIZE);
@@ -393,35 +466,57 @@ void resetInterval(foodQuality quality, int brestFeedAmount) {
   if (counter >= MAX_LOG_LINES) {
     counter = 0;
   }
+  // Reset manual timer value
+  setManualTimeValue.set(0, 0, 0);
+  isManualTimerSet = false;
+  Serial.println("---------");
+  Serial.print("isManualTimerSet: ");
+  Serial.println(isManualTimerSet);
 }
 
 void updatePixels() {
   int currentInterval;
   EEPROM.get(eepromIntervalAddress, currentInterval);
-  int pixelDivisionValue = (currentInterval * 3600) / NUM_LEDS;
+  pixelDivisionValue = (currentInterval * 360) / NUM_LEDS; // seconds per 1 pixel
 
   if (isTimerStarted) {
     if ((int(currentEpochTime) - int(operationEpochTime)) >= pixelDivisionValue) {
       operationEpochTime += pixelDivisionValue;
       currentPixel += 1;
     }
-
+    Serial.println("");
+    Serial.print("currentInterval: ");
+    Serial.print(currentInterval);
+    Serial.print(" | ");
+    Serial.print("pixelDivisionValue: ");
+    Serial.print(pixelDivisionValue);
+    Serial.print(" | ");
+    Serial.print("div: ");
+    Serial.print(int(currentEpochTime) - int(operationEpochTime));
+    Serial.print(" | ");
     Serial.print("currentPixel: ");
-    Serial.println(currentPixel);
+    Serial.print(currentPixel);
+
+    Serial.print(" | ");
+    Serial.print("operationEpochTime: ");
+    Serial.print(operationEpochTime);
+
+
+
     if (currentPixel <= NUM_LEDS) {
       setPixel(currentPixel);
     } else if (currentPixel > NUM_LEDS && currentPixel <= NUM_LEDS * 2) {
       setOvertimePixel(currentPixel);
     }
 
-    time_t epochTimeInterval = currentEpochTime - storeEpochTime;
+    time_t epochTimeInterval = currentEpochTime - operationEpochTime;
     char format[] = "hh:mm:ss";
     tm tm;
     gmtime_r(&epochTimeInterval, &tm);
     valTime.set(tm.tm_hour, tm.tm_min, tm.tm_sec);
-  } else {
-    valTime.set(0, 0, 0);
-  }
+  } //else {
+  //   valTime.set(0, 0, 0);
+  // }
 }
 
 void setOvertimePixel(int pixel) {
@@ -459,9 +554,9 @@ void pixelsOff() {
   strip.show();
 }
 
-void pixelsOn() {
+void pixelsOn(int fromPixel) {
   Serial.println("pixelsOn");
-  for (int i = 0; i < NUM_LEDS; i++) {
+  for (int i = fromPixel; i < NUM_LEDS; i++) {
     strip.setPixelColor(i, strip.Color(0, 50, 50));
   }
   strip.show();
